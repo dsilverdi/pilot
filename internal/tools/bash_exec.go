@@ -14,25 +14,43 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 )
 
+// SessionDirProvider provides the current session's files directory
+type SessionDirProvider interface {
+	CurrentFilesDir() string
+}
+
 // BashExecTool executes bash commands
 type BashExecTool struct {
-	workDir        string
-	sessionDir     string // Directory for session-specific files
-	defaultTimeout time.Duration
+	workDir         string
+	sessionProvider SessionDirProvider // Dynamic session directory provider
+	fallbackDir     string             // Fallback if no session
+	defaultTimeout  time.Duration
 }
 
 // NewBashExecTool creates a new bash execution tool
-func NewBashExecTool(workDir string, sessionDir string) *BashExecTool {
+func NewBashExecTool(workDir string, sessionProvider SessionDirProvider, fallbackDir string) *BashExecTool {
 	return &BashExecTool{
-		workDir:        workDir,
-		sessionDir:     sessionDir,
-		defaultTimeout: 120 * time.Second, // 2 minute default timeout
+		workDir:         workDir,
+		sessionProvider: sessionProvider,
+		fallbackDir:     fallbackDir,
+		defaultTimeout:  120 * time.Second, // 2 minute default timeout
 	}
+}
+
+// getSessionDir returns the current session directory
+func (t *BashExecTool) getSessionDir() string {
+	if t.sessionProvider != nil {
+		if dir := t.sessionProvider.CurrentFilesDir(); dir != "" {
+			return dir
+		}
+	}
+	return t.fallbackDir
 }
 
 func (t *BashExecTool) Name() string { return "bash_exec" }
 
 func (t *BashExecTool) Description() string {
+	sessionDir := t.getSessionDir()
 	return `Execute a bash command and return the output. Use this to:
 - Run scripts (node script.js, python script.py)
 - Install dependencies (npm install, pip install)
@@ -42,7 +60,7 @@ func (t *BashExecTool) Description() string {
 Commands run in the current working directory. Use 'cd' within the command if needed.
 Timeout: 2 minutes. For long-running commands, consider background execution.
 
-Session files directory: ` + t.sessionDir
+Session files directory: ` + sessionDir
 }
 
 func (t *BashExecTool) InputSchema() anthropic.ToolInputSchemaParam {
@@ -94,7 +112,7 @@ func (t *BashExecTool) Execute(ctx context.Context, input json.RawMessage) (stri
 	workDir := t.workDir
 	if in.WorkingDir != "" {
 		if in.WorkingDir == "session" {
-			workDir = t.sessionDir
+			workDir = t.getSessionDir()
 			// Ensure session directory exists
 			if err := os.MkdirAll(workDir, 0755); err != nil {
 				return "", fmt.Errorf("failed to create session directory: %w", err)
@@ -120,7 +138,7 @@ func (t *BashExecTool) Execute(ctx context.Context, input json.RawMessage) (stri
 
 	// Set environment
 	cmd.Env = append(os.Environ(),
-		"SESSION_DIR="+t.sessionDir,
+		"SESSION_DIR="+t.getSessionDir(),
 	)
 
 	// Run command
@@ -160,14 +178,4 @@ func (t *BashExecTool) Execute(ctx context.Context, input json.RawMessage) (stri
 	}
 
 	return output, nil
-}
-
-// SetSessionDir updates the session directory (called when session changes)
-func (t *BashExecTool) SetSessionDir(dir string) {
-	t.sessionDir = dir
-}
-
-// GetSessionDir returns the current session directory
-func (t *BashExecTool) GetSessionDir() string {
-	return t.sessionDir
 }
