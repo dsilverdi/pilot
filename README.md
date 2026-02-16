@@ -111,6 +111,18 @@ description: What this skill does and when to use it.
 Instructions for the skill...
 ```
 
+## Data Directory
+
+Pilot stores sessions and user skills in `~/.pilot/`:
+
+```
+~/.pilot/
+├── sessions/           # Persisted chat sessions (JSON)
+└── skills/             # User-installed skills
+```
+
+Sessions are automatically saved after each interaction and can be managed with `/session` commands.
+
 ## Project Structure
 
 ```
@@ -122,7 +134,7 @@ pilot/
 │   ├── session/        # Session management
 │   ├── skills/         # Skill parser and loader
 │   └── tools/          # Tool interface and implementations
-└── skills/             # Local skills directory
+└── skills/             # Local skills directory (project-specific)
 ```
 
 ## Development

@@ -190,7 +190,7 @@ func TestResolveAuthOptions(t *testing.T) {
 			oauthToken: "oauth-token",
 			authToken:  "auth-token",
 			apiKey:     "api-key",
-			wantLen:    1, // Only OAuth token option added
+			wantLen:    4, // OAuth token + 3 beta headers
 		},
 		{
 			name:       "auth token when no oauth",

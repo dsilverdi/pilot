@@ -82,3 +82,24 @@ func (r *Registry) GetToolParams() []anthropic.ToolUnionParam {
 	}
 	return params
 }
+
+// ToolInfo contains basic tool information
+type ToolInfo struct {
+	Name        string
+	Description string
+}
+
+// ListTools returns information about all registered tools
+func (r *Registry) ListTools() []ToolInfo {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	infos := make([]ToolInfo, 0, len(r.tools))
+	for _, tool := range r.tools {
+		infos = append(infos, ToolInfo{
+			Name:        tool.Name(),
+			Description: tool.Description(),
+		})
+	}
+	return infos
+}

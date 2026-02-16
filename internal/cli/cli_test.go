@@ -97,13 +97,13 @@ func TestBuiltinCommands(t *testing.T) {
 	// Test that all expected commands are registered
 	expectedCommands := []string{"help", "session", "clear", "skill", "tool", "exit"}
 
-	cli := &CLI{
+	c := &CLI{
 		commands: make(map[string]Command),
 	}
-	cli.registerBuiltinCommands()
+	c.registerBuiltinCommands()
 
 	for _, cmdName := range expectedCommands {
-		if _, ok := cli.commands[cmdName]; !ok {
+		if _, ok := c.commands[cmdName]; !ok {
 			t.Errorf("expected command %q to be registered", cmdName)
 		}
 	}

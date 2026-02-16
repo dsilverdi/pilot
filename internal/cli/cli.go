@@ -9,24 +9,47 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/dsilverdi/pilot/internal/agent"
+	"github.com/dsilverdi/pilot/internal/session"
+	"github.com/dsilverdi/pilot/internal/skills"
+	"github.com/dsilverdi/pilot/internal/tools"
 )
 
 // CLI handles the interactive command-line interface
 type CLI struct {
-	agent    *agent.Agent
-	renderer *Renderer
-	commands map[string]Command
-	messages []anthropic.MessageParam
+	agent          *agent.Agent
+	renderer       *Renderer
+	commands       map[string]Command
+	messages       []anthropic.MessageParam
+	sessionManager *session.Manager
+	skillLoaders   []*skills.Loader
+	toolRegistry   *tools.Registry
+	globalSkillDir string
+}
+
+// Options configures the CLI
+type Options struct {
+	SessionManager *session.Manager
+	SkillLoaders   []*skills.Loader
+	ToolRegistry   *tools.Registry
+	GlobalSkillDir string
 }
 
 // New creates a new CLI instance
-func New(ag *agent.Agent) *CLI {
+func New(ag *agent.Agent, opts *Options) *CLI {
 	cli := &CLI{
 		agent:    ag,
 		renderer: NewRenderer(),
 		commands: make(map[string]Command),
 		messages: make([]anthropic.MessageParam, 0),
 	}
+
+	if opts != nil {
+		cli.sessionManager = opts.SessionManager
+		cli.skillLoaders = opts.SkillLoaders
+		cli.toolRegistry = opts.ToolRegistry
+		cli.globalSkillDir = opts.GlobalSkillDir
+	}
+
 	cli.registerBuiltinCommands()
 	return cli
 }
@@ -35,10 +58,10 @@ func New(ag *agent.Agent) *CLI {
 func (c *CLI) registerBuiltinCommands() {
 	helpCmd := &HelpCommand{commands: c.commands}
 	c.commands["help"] = helpCmd
-	c.commands["session"] = &SessionCommand{}
+	c.commands["session"] = &SessionCommand{manager: c.sessionManager, cli: c}
 	c.commands["clear"] = &ClearCommand{cli: c}
-	c.commands["skill"] = &SkillCommand{}
-	c.commands["tool"] = &ToolCommand{}
+	c.commands["skill"] = &SkillCommand{loaders: c.skillLoaders, globalSkillDir: c.globalSkillDir}
+	c.commands["tool"] = &ToolCommand{registry: c.toolRegistry}
 	c.commands["exit"] = &ExitCommand{}
 }
 
@@ -88,6 +111,7 @@ func (c *CLI) Run(ctx context.Context) error {
 		}
 
 		c.messages = newMessages
+		c.saveToSession()
 	}
 }
 
@@ -141,6 +165,28 @@ func isLetter(c byte) bool {
 // ClearMessages clears the conversation history
 func (c *CLI) ClearMessages() {
 	c.messages = make([]anthropic.MessageParam, 0)
+	// Also clear from session if we have one
+	if c.sessionManager != nil {
+		if sess := c.sessionManager.Current(); sess != nil {
+			sess.Clear()
+			c.sessionManager.SaveCurrent()
+		}
+	}
+}
+
+// LoadMessagesFromSession loads messages from a session into the CLI
+func (c *CLI) LoadMessagesFromSession(sess *session.Session) {
+	c.messages = sess.GetMessages()
+}
+
+// saveToSession saves current messages to the session
+func (c *CLI) saveToSession() {
+	if c.sessionManager != nil {
+		if sess := c.sessionManager.Current(); sess != nil {
+			sess.SetMessages(c.messages)
+			c.sessionManager.SaveCurrent()
+		}
+	}
 }
 
 // ExecutePrompt executes a single prompt and exits (non-interactive mode)
@@ -149,10 +195,13 @@ func (c *CLI) ExecutePrompt(ctx context.Context, prompt string) error {
 	c.messages = append(c.messages, anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)))
 
 	// Execute and stream response
-	_, err := c.agent.Chat(ctx, c.messages, c.renderer.HandleEvent)
+	newMessages, err := c.agent.Chat(ctx, c.messages, c.renderer.HandleEvent)
 	if err != nil {
 		return err
 	}
+
+	c.messages = newMessages
+	c.saveToSession()
 
 	// Print newline for clean output
 	fmt.Println()
