@@ -11,6 +11,13 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
+const (
+	// OAuth beta header required for OAuth tokens
+	oauthBetaHeader = "oauth-2025-04-20"
+	// User agent for CLI
+	pilotUserAgent = "pilot-cli/1.0.0"
+)
+
 // ToolRegistry defines the interface for tool management
 type ToolRegistry interface {
 	GetToolParams() []anthropic.ToolUnionParam
@@ -53,7 +60,11 @@ func resolveAuthOptions() []option.RequestOption {
 
 	// Check for OAuth token first (highest priority)
 	if token := strings.TrimSpace(os.Getenv("ANTHROPIC_OAUTH_TOKEN")); token != "" {
+		// OAuth tokens require special headers
 		opts = append(opts, option.WithAuthToken(token))
+		opts = append(opts, option.WithHeader("anthropic-beta", oauthBetaHeader))
+		opts = append(opts, option.WithHeader("anthropic-dangerous-direct-browser-access", "true"))
+		opts = append(opts, option.WithHeader("user-agent", pilotUserAgent))
 		return opts
 	}
 
