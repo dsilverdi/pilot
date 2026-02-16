@@ -114,3 +114,15 @@ type EventHandler func(Event)
 func (a *Agent) Chat(ctx context.Context, messages []anthropic.MessageParam, onEvent EventHandler) ([]anthropic.MessageParam, error) {
 	return a.runAgenticLoop(ctx, messages, onEvent)
 }
+
+// CreateMessage creates a non-streaming message (used for compaction summaries)
+func (a *Agent) CreateMessage(ctx context.Context, params anthropic.MessageNewParams) (*anthropic.Message, error) {
+	return a.client.Messages.New(ctx, params)
+}
+
+// Model returns the agent's configured model
+func (a *Agent) Model() anthropic.Model {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.config.Model
+}

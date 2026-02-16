@@ -42,6 +42,7 @@ func (c *HelpCommand) Execute(args []string) error {
 	fmt.Println("  /session switch <id>     - Switch to a session")
 	fmt.Println("  /session delete <id>     - Delete a session")
 	fmt.Println("  /clear                   - Clear conversation history")
+	fmt.Println("  /compact                 - Compact conversation history (summarize old messages)")
 	fmt.Println("  /skill list              - List available skills")
 	fmt.Println("  /skill install <name>    - Install skill to ~/.pilot/skills/")
 	fmt.Println("  /skill install --all     - Install all local skills globally")
@@ -164,9 +165,27 @@ func (c *ClearCommand) Execute(args []string) error {
 	return nil
 }
 
+// CompactCommand compacts conversation history
+type CompactCommand struct {
+	cli *CLI
+}
+
+func (c *CompactCommand) Name() string { return "compact" }
+
+func (c *CompactCommand) Description() string {
+	return "Compact conversation history by summarizing old messages"
+}
+
+func (c *CompactCommand) Execute(args []string) error {
+	if c.cli == nil {
+		return fmt.Errorf("CLI not configured")
+	}
+	return c.cli.CompactMessages()
+}
+
 // SkillCommand manages skills
 type SkillCommand struct {
-	loaders       []*skills.Loader
+	loaders        []*skills.Loader
 	globalSkillDir string
 }
 

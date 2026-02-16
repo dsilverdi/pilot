@@ -14,6 +14,12 @@ import (
 	"github.com/dsilverdi/pilot/internal/tools"
 )
 
+// Default compaction settings
+const (
+	DefaultCompactionThreshold = 100000 // ~100k tokens
+	AutoCompactionThreshold    = 150000 // Auto-compact at ~120k tokens
+)
+
 // CLI handles the interactive command-line interface
 type CLI struct {
 	agent          *agent.Agent
@@ -24,6 +30,8 @@ type CLI struct {
 	skillLoaders   []*skills.Loader
 	toolRegistry   *tools.Registry
 	globalSkillDir string
+	compactor      *session.Compactor
+	ctx            context.Context // stored for compaction
 }
 
 // Options configures the CLI
@@ -50,6 +58,9 @@ func New(ag *agent.Agent, opts *Options) *CLI {
 		cli.globalSkillDir = opts.GlobalSkillDir
 	}
 
+	// Create compactor using agent as the client
+	cli.compactor = session.NewCompactor(ag, ag.Model(), DefaultCompactionThreshold)
+
 	cli.registerBuiltinCommands()
 	return cli
 }
@@ -60,6 +71,7 @@ func (c *CLI) registerBuiltinCommands() {
 	c.commands["help"] = helpCmd
 	c.commands["session"] = &SessionCommand{manager: c.sessionManager, cli: c}
 	c.commands["clear"] = &ClearCommand{cli: c}
+	c.commands["compact"] = &CompactCommand{cli: c}
 	c.commands["skill"] = &SkillCommand{loaders: c.skillLoaders, globalSkillDir: c.globalSkillDir}
 	c.commands["tool"] = &ToolCommand{registry: c.toolRegistry}
 	c.commands["exit"] = &ExitCommand{}
@@ -67,6 +79,7 @@ func (c *CLI) registerBuiltinCommands() {
 
 // Run starts the interactive CLI loop
 func (c *CLI) Run(ctx context.Context) error {
+	c.ctx = ctx
 	reader := bufio.NewReader(os.Stdin)
 
 	c.renderer.PrintWelcome()
@@ -112,6 +125,9 @@ func (c *CLI) Run(ctx context.Context) error {
 
 		c.messages = newMessages
 		c.saveToSession()
+
+		// Check for auto-compaction
+		c.checkAutoCompaction(ctx)
 	}
 }
 
@@ -191,6 +207,8 @@ func (c *CLI) saveToSession() {
 
 // ExecutePrompt executes a single prompt and exits (non-interactive mode)
 func (c *CLI) ExecutePrompt(ctx context.Context, prompt string) error {
+	c.ctx = ctx
+
 	// Add user message
 	c.messages = append(c.messages, anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)))
 
@@ -206,4 +224,85 @@ func (c *CLI) ExecutePrompt(ctx context.Context, prompt string) error {
 	// Print newline for clean output
 	fmt.Println()
 	return nil
+}
+
+// CompactMessages manually triggers compaction of the conversation history
+func (c *CLI) CompactMessages() error {
+	if c.sessionManager == nil {
+		return fmt.Errorf("session management not configured")
+	}
+
+	sess := c.sessionManager.Current()
+	if sess == nil {
+		return fmt.Errorf("no active session")
+	}
+
+	// Sync current messages to session
+	sess.SetMessages(c.messages)
+
+	// Check if compaction is needed
+	tokens := sess.EstimateTokens()
+	if tokens < DefaultCompactionThreshold/2 {
+		fmt.Printf("Conversation is small (~%dk tokens), no compaction needed.\n", tokens/1000)
+		return nil
+	}
+
+	fmt.Printf("Compacting conversation (~%dk tokens)...\n", tokens/1000)
+
+	// Run compaction
+	if err := c.compactor.Compact(c.ctx, sess); err != nil {
+		return fmt.Errorf("compaction failed: %w", err)
+	}
+
+	// Reload messages from session
+	c.messages = sess.GetMessages()
+
+	// Save session
+	if err := c.sessionManager.SaveCurrent(); err != nil {
+		return fmt.Errorf("failed to save session: %w", err)
+	}
+
+	compaction := sess.GetCompaction()
+	fmt.Printf("Compacted %d messages. Kept %d recent messages.\n",
+		compaction.CompactedCount, len(c.messages))
+
+	return nil
+}
+
+// checkAutoCompaction checks if auto-compaction should be triggered
+func (c *CLI) checkAutoCompaction(ctx context.Context) {
+	if c.sessionManager == nil {
+		return
+	}
+
+	sess := c.sessionManager.Current()
+	if sess == nil {
+		return
+	}
+
+	// Sync messages to session for token estimation
+	sess.SetMessages(c.messages)
+
+	// Check if we've exceeded auto-compaction threshold
+	if !sess.NeedsCompaction(AutoCompactionThreshold) {
+		return
+	}
+
+	tokens := sess.EstimateTokens()
+	fmt.Printf("\n[Auto-compacting conversation (~%dk tokens)...]\n", tokens/1000)
+
+	if err := c.compactor.Compact(ctx, sess); err != nil {
+		fmt.Printf("[Warning: auto-compaction failed: %v]\n", err)
+		return
+	}
+
+	// Reload messages
+	c.messages = sess.GetMessages()
+
+	// Save session
+	c.sessionManager.SaveCurrent()
+
+	compaction := sess.GetCompaction()
+	fmt.Printf("[Compacted %d messages. Summary stored in session.]\n\n",
+		compaction.CompactedCount)
 }
