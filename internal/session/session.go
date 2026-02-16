@@ -12,6 +12,7 @@ type Session struct {
 	ID        string                   `json:"id"`
 	Name      string                   `json:"name"`
 	Messages  []anthropic.MessageParam `json:"messages"`
+	FilesDir  string                   `json:"files_dir,omitempty"` // Directory for session shell files
 	CreatedAt time.Time                `json:"created_at"`
 	UpdatedAt time.Time                `json:"updated_at"`
 

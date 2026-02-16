@@ -10,7 +10,7 @@ func TestNewManager(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, _ := NewFileStore(tmpDir)
 
-	mgr := NewManager(store)
+	mgr := NewManager(store, tmpDir)
 	if mgr == nil {
 		t.Fatal("NewManager() returned nil")
 	}
@@ -19,7 +19,7 @@ func TestNewManager(t *testing.T) {
 func TestManagerCreate(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, _ := NewFileStore(tmpDir)
-	mgr := NewManager(store)
+	mgr := NewManager(store, tmpDir)
 
 	sess, err := mgr.Create("Test Session")
 	if err != nil {
@@ -39,7 +39,7 @@ func TestManagerCreate(t *testing.T) {
 func TestManagerCreateSetsCurrent(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, _ := NewFileStore(tmpDir)
-	mgr := NewManager(store)
+	mgr := NewManager(store, tmpDir)
 
 	sess, _ := mgr.Create("Test")
 
@@ -55,7 +55,7 @@ func TestManagerCreateSetsCurrent(t *testing.T) {
 func TestManagerSwitch(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, _ := NewFileStore(tmpDir)
-	mgr := NewManager(store)
+	mgr := NewManager(store, tmpDir)
 
 	sess1, _ := mgr.Create("Session 1")
 	sess2, _ := mgr.Create("Session 2")
@@ -78,7 +78,7 @@ func TestManagerSwitch(t *testing.T) {
 func TestManagerSwitchNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, _ := NewFileStore(tmpDir)
-	mgr := NewManager(store)
+	mgr := NewManager(store, tmpDir)
 
 	err := mgr.Switch("nonexistent")
 	if err == nil {
@@ -89,7 +89,7 @@ func TestManagerSwitchNotFound(t *testing.T) {
 func TestManagerList(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, _ := NewFileStore(tmpDir)
-	mgr := NewManager(store)
+	mgr := NewManager(store, tmpDir)
 
 	// Empty list
 	list, err := mgr.List()
@@ -113,7 +113,7 @@ func TestManagerList(t *testing.T) {
 func TestManagerDelete(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, _ := NewFileStore(tmpDir)
-	mgr := NewManager(store)
+	mgr := NewManager(store, tmpDir)
 
 	sess, _ := mgr.Create("Test")
 	id := sess.ID
@@ -131,7 +131,7 @@ func TestManagerDelete(t *testing.T) {
 func TestManagerDeleteCurrentSession(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, _ := NewFileStore(tmpDir)
-	mgr := NewManager(store)
+	mgr := NewManager(store, tmpDir)
 
 	sess, _ := mgr.Create("Test")
 
@@ -148,7 +148,7 @@ func TestManagerDeleteCurrentSession(t *testing.T) {
 func TestManagerSaveCurrent(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, _ := NewFileStore(tmpDir)
-	mgr := NewManager(store)
+	mgr := NewManager(store, tmpDir)
 
 	sess, _ := mgr.Create("Test")
 
@@ -170,7 +170,7 @@ func TestManagerSaveCurrent(t *testing.T) {
 func TestManagerSaveCurrentNil(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, _ := NewFileStore(tmpDir)
-	mgr := NewManager(store)
+	mgr := NewManager(store, tmpDir)
 
 	// Should not error when no current session
 	if err := mgr.SaveCurrent(); err != nil {
@@ -181,7 +181,7 @@ func TestManagerSaveCurrentNil(t *testing.T) {
 func TestManagerGetOrCreate(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, _ := NewFileStore(tmpDir)
-	mgr := NewManager(store)
+	mgr := NewManager(store, tmpDir)
 
 	// First call should create
 	sess1, err := mgr.GetOrCreate("default")

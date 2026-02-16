@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"path/filepath"
 	"sync"
 
 	"github.com/google/uuid"
@@ -9,14 +10,18 @@ import (
 
 // Manager handles session lifecycle and switching
 type Manager struct {
-	store   Store
-	current *Session
-	mu      sync.RWMutex
+	store    Store
+	current  *Session
+	baseDir  string // Base directory for session files (e.g., ~/.pilot/sessions)
+	mu       sync.RWMutex
 }
 
 // NewManager creates a new session manager
-func NewManager(store Store) *Manager {
-	return &Manager{store: store}
+func NewManager(store Store, baseDir string) *Manager {
+	return &Manager{
+		store:   store,
+		baseDir: baseDir,
+	}
 }
 
 // Create creates a new session and sets it as current
@@ -26,6 +31,11 @@ func (m *Manager) Create(name string) (*Session, error) {
 
 	id := uuid.New().String()[:8]
 	s := New(id, name)
+
+	// Set files directory for shell-snapshot
+	if m.baseDir != "" {
+		s.FilesDir = filepath.Join(m.baseDir, id, "files")
+	}
 
 	if err := m.store.Save(s); err != nil {
 		return nil, err
@@ -105,4 +115,22 @@ func (m *Manager) GetOrCreate(name string) (*Session, error) {
 
 	// Create new session
 	return m.Create(name)
+}
+
+// CurrentFilesDir returns the files directory for the current session
+// Returns empty string if no session is active
+func (m *Manager) CurrentFilesDir() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.current == nil {
+		return ""
+	}
+
+	// If FilesDir not set (old session), compute it
+	if m.current.FilesDir == "" && m.baseDir != "" {
+		return filepath.Join(m.baseDir, m.current.ID, "files")
+	}
+
+	return m.current.FilesDir
 }
