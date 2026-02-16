@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -162,4 +163,68 @@ func (m *MockToolRegistry) GetToolParams() []anthropic.ToolUnionParam {
 
 func (m *MockToolRegistry) Execute(ctx context.Context, name string, input json.RawMessage) (string, bool) {
 	return "mock result", false
+}
+
+func TestResolveAuthOptions(t *testing.T) {
+	// Save original env vars
+	origOAuth := os.Getenv("ANTHROPIC_OAUTH_TOKEN")
+	origAuth := os.Getenv("ANTHROPIC_AUTH_TOKEN")
+	origAPI := os.Getenv("ANTHROPIC_API_KEY")
+
+	// Cleanup after test
+	defer func() {
+		os.Setenv("ANTHROPIC_OAUTH_TOKEN", origOAuth)
+		os.Setenv("ANTHROPIC_AUTH_TOKEN", origAuth)
+		os.Setenv("ANTHROPIC_API_KEY", origAPI)
+	}()
+
+	tests := []struct {
+		name       string
+		oauthToken string
+		authToken  string
+		apiKey     string
+		wantLen    int
+	}{
+		{
+			name:       "oauth token takes priority",
+			oauthToken: "oauth-token",
+			authToken:  "auth-token",
+			apiKey:     "api-key",
+			wantLen:    1, // Only OAuth token option added
+		},
+		{
+			name:       "auth token when no oauth",
+			oauthToken: "",
+			authToken:  "auth-token",
+			apiKey:     "api-key",
+			wantLen:    1, // Auth token option added
+		},
+		{
+			name:       "fallback to api key",
+			oauthToken: "",
+			authToken:  "",
+			apiKey:     "api-key",
+			wantLen:    0, // SDK handles API key by default
+		},
+		{
+			name:       "whitespace oauth token ignored",
+			oauthToken: "   ",
+			authToken:  "auth-token",
+			apiKey:     "",
+			wantLen:    1, // Falls back to auth token
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Setenv("ANTHROPIC_OAUTH_TOKEN", tt.oauthToken)
+			os.Setenv("ANTHROPIC_AUTH_TOKEN", tt.authToken)
+			os.Setenv("ANTHROPIC_API_KEY", tt.apiKey)
+
+			opts := resolveAuthOptions()
+			if len(opts) != tt.wantLen {
+				t.Errorf("resolveAuthOptions() returned %d options, want %d", len(opts), tt.wantLen)
+			}
+		})
+	}
 }

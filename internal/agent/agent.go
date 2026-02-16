@@ -3,9 +3,12 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
 // ToolRegistry defines the interface for tool management
@@ -32,13 +35,37 @@ func New(config *Config, registry ToolRegistry) (*Agent, error) {
 		return nil, ErrNoToolRegistry
 	}
 
-	client := anthropic.NewClient()
+	// Resolve authentication
+	opts := resolveAuthOptions()
+	client := anthropic.NewClient(opts...)
 
 	return &Agent{
 		client:   &client,
 		config:   config,
 		registry: registry,
 	}, nil
+}
+
+// resolveAuthOptions determines the authentication method based on environment variables
+// Priority: ANTHROPIC_OAUTH_TOKEN > ANTHROPIC_AUTH_TOKEN > ANTHROPIC_API_KEY
+func resolveAuthOptions() []option.RequestOption {
+	var opts []option.RequestOption
+
+	// Check for OAuth token first (highest priority)
+	if token := strings.TrimSpace(os.Getenv("ANTHROPIC_OAUTH_TOKEN")); token != "" {
+		opts = append(opts, option.WithAuthToken(token))
+		return opts
+	}
+
+	// Check for auth token (used by SDK default)
+	if token := strings.TrimSpace(os.Getenv("ANTHROPIC_AUTH_TOKEN")); token != "" {
+		opts = append(opts, option.WithAuthToken(token))
+		return opts
+	}
+
+	// Fall back to API key (SDK reads ANTHROPIC_API_KEY by default)
+	// No need to add explicit option, SDK handles it
+	return opts
 }
 
 // Config returns the agent's configuration

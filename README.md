@@ -19,8 +19,10 @@ go build -o pilot ./cmd/pilot
 ## Usage
 
 ```bash
-# Set required environment variables
+# Set Anthropic authentication (one of the following)
 export ANTHROPIC_API_KEY="your-anthropic-api-key"
+# OR use OAuth token (takes priority over API key)
+export ANTHROPIC_OAUTH_TOKEN="your-oauth-token"
 
 # Optional: Enable web search
 export BRAVE_API_KEY="your-brave-api-key"
@@ -28,6 +30,16 @@ export BRAVE_API_KEY="your-brave-api-key"
 # Run
 ./pilot
 ```
+
+## Authentication
+
+Pilot supports multiple authentication methods with the following priority:
+
+1. **`ANTHROPIC_OAUTH_TOKEN`** - OAuth token (highest priority)
+2. **`ANTHROPIC_AUTH_TOKEN`** - Auth token
+3. **`ANTHROPIC_API_KEY`** - API key (lowest priority)
+
+OAuth tokens are useful when authenticating via Claude's OAuth flow (tokens prefixed with `sk-ant-oat-`).
 
 ## CLI Commands
 
