@@ -1,4 +1,4 @@
-.PHONY: build run test test-cover clean install lint fmt help
+.PHONY: build run test test-cover clean install setup uninstall lint fmt help
 
 # Binary name
 BINARY_NAME=pilot
@@ -12,8 +12,15 @@ GOGET=$(GOCMD) get
 GOMOD=$(GOCMD) mod
 GOFMT=$(GOCMD) fmt
 
+# Version info
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
+
 # Build flags
-LDFLAGS=-ldflags "-s -w"
+LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
+
+# Install directory
+INSTALL_DIR ?= /usr/local/bin
 
 ## help: Show this help message
 help:
@@ -69,9 +76,43 @@ clean:
 	rm -f $(BINARY_NAME)
 	rm -f coverage.out coverage.html
 
-## install: Install binary to $GOPATH/bin
-install:
-	$(GOBUILD) $(LDFLAGS) -o $(GOPATH)/bin/$(BINARY_NAME) ./cmd/pilot
+## install: Install binary to /usr/local/bin (requires sudo)
+install: build
+	@echo "Installing $(BINARY_NAME) to $(INSTALL_DIR)..."
+	sudo cp $(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
+	sudo chmod +x $(INSTALL_DIR)/$(BINARY_NAME)
+	@echo "Installed! Run 'pilot' to start"
+
+## install-user: Install binary to ~/bin (no sudo required)
+install-user: build
+	@mkdir -p $(HOME)/bin
+	cp $(BINARY_NAME) $(HOME)/bin/$(BINARY_NAME)
+	chmod +x $(HOME)/bin/$(BINARY_NAME)
+	@echo "Installed to ~/bin/$(BINARY_NAME)"
+	@if echo "$$PATH" | grep -q "$(HOME)/bin"; then \
+		echo "Run 'pilot' to start"; \
+	else \
+		echo "Add this to your shell config: export PATH=\"\$$HOME/bin:\$$PATH\""; \
+	fi
+
+## uninstall: Remove installed binary
+uninstall:
+	@if [ -f $(INSTALL_DIR)/$(BINARY_NAME) ]; then \
+		sudo rm -f $(INSTALL_DIR)/$(BINARY_NAME); \
+		echo "Removed $(INSTALL_DIR)/$(BINARY_NAME)"; \
+	fi
+	@if [ -f $(HOME)/bin/$(BINARY_NAME) ]; then \
+		rm -f $(HOME)/bin/$(BINARY_NAME); \
+		echo "Removed $(HOME)/bin/$(BINARY_NAME)"; \
+	fi
+
+## setup: Run the setup script (interactive installation)
+setup:
+	./scripts/setup.sh
+
+## setup-user: Run setup script for user-local installation
+setup-user:
+	./scripts/setup.sh --user
 
 ## dev: Run with live reload (requires air: go install github.com/air-verse/air@latest)
 dev:
@@ -85,3 +126,8 @@ deps:
 update:
 	$(GOGET) -u ./...
 	$(GOMOD) tidy
+
+## version: Show version info
+version:
+	@echo "Version: $(VERSION)"
+	@echo "Build time: $(BUILD_TIME)"

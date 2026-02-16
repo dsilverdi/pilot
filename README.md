@@ -12,8 +12,24 @@ A lightweight agentic CLI system built with Go and the Anthropic SDK.
 
 ## Installation
 
+### Quick Install (requires sudo)
+
 ```bash
-go build -o pilot ./cmd/pilot
+make install
+```
+
+### User Install (no sudo)
+
+```bash
+make install-user
+# Then add ~/bin to PATH if not already:
+# export PATH="$HOME/bin:$PATH"
+```
+
+### Build Only
+
+```bash
+make build
 ```
 
 ## Usage
@@ -27,9 +43,21 @@ export ANTHROPIC_OAUTH_TOKEN="your-oauth-token"
 # Optional: Enable web search
 export BRAVE_API_KEY="your-brave-api-key"
 
-# Run
-./pilot
+# Start interactive mode
+pilot
+
+# Or execute a prompt directly
+pilot -p "What is the capital of France?"
+pilot -p "Read the file main.go and explain it"
 ```
+
+### Command Line Options
+
+| Flag | Description |
+|------|-------------|
+| `-p <prompt>` | Execute a prompt directly without entering interactive mode |
+| `-v, --version` | Show version |
+| `-h, --help` | Show help |
 
 ## Authentication
 

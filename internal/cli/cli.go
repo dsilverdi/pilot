@@ -142,3 +142,19 @@ func isLetter(c byte) bool {
 func (c *CLI) ClearMessages() {
 	c.messages = make([]anthropic.MessageParam, 0)
 }
+
+// ExecutePrompt executes a single prompt and exits (non-interactive mode)
+func (c *CLI) ExecutePrompt(ctx context.Context, prompt string) error {
+	// Add user message
+	c.messages = append(c.messages, anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)))
+
+	// Execute and stream response
+	_, err := c.agent.Chat(ctx, c.messages, c.renderer.HandleEvent)
+	if err != nil {
+		return err
+	}
+
+	// Print newline for clean output
+	fmt.Println()
+	return nil
+}
