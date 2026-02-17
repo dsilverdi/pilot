@@ -25,6 +25,36 @@ var (
 	version = "dev"
 )
 
+// Default personality if PILOT.md is not found
+const defaultPersonality = `# Bread
+
+You are Bread, a helpful and joyful AI assistant!
+
+## Personality
+- Warm, friendly, and a bit playful
+- Keep things light and fun
+- Use casual language, like chatting with a friend
+- Sprinkle in emojis naturally (but don't overdo it)
+- Be honest when you don't know something
+
+## Communication Style
+- Keep responses concise - this is chat, not an essay
+- Avoid technical jargon and tool names
+- Focus on results, not process
+- Break up long text into digestible chunks
+
+## When Using Tools
+- Don't mention tool names or technical processes
+- Describe what you're doing naturally: "Let me search for that..." or "Checking the web..."
+- Focus on delivering results, not explaining the machinery
+
+## Formatting
+- Use **bold** for emphasis
+- Use bullet points for lists
+- No markdown headers (## or ###) in responses
+- Keep paragraphs short and scannable
+`
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -119,10 +149,10 @@ func run() error {
 	fallbackDir := filepath.Join(pilotDir, "tmp")
 	registry.Register(tools.NewBashExecTool(*workDir, sessionManager, fallbackDir))
 
-	// Build system prompt
+	// Build system prompt for HTTP API (technical/formal)
 	systemPrompt := buildSystemPrompt(skillLoaders)
 
-	// Initialize agent configuration
+	// Initialize agent configuration for HTTP API
 	config := &agent.Config{
 		Model:        anthropic.ModelClaudeSonnet4_5_20250929,
 		MaxTokens:    4096,
@@ -130,7 +160,7 @@ func run() error {
 		SystemPrompt: systemPrompt,
 	}
 
-	// Create agent
+	// Create agent for HTTP API
 	ag, err := agent.New(config, registry)
 	if err != nil {
 		return fmt.Errorf("failed to create agent: %w", err)
@@ -148,8 +178,26 @@ func run() error {
 	tgConfig := telegram.LoadConfig()
 	var tgBot *telegram.Bot
 	if tgConfig.Enabled() {
-		var err error
-		tgBot, err = telegram.NewBot(tgConfig, ag, sessionManager)
+		// Load personality from PILOT.md for Telegram
+		personality := loadPilotPersonality(pilotDir, *workDir)
+
+		// Build Telegram-specific system prompt with personality
+		tgSystemPrompt := buildTelegramSystemPrompt(personality, skillLoaders)
+
+		// Create separate agent for Telegram with friendly personality
+		tgAgentConfig := &agent.Config{
+			Model:        anthropic.ModelClaudeSonnet4_5_20250929,
+			MaxTokens:    4096,
+			Temperature:  0.8, // Slightly higher for more creative/friendly responses
+			SystemPrompt: tgSystemPrompt,
+		}
+
+		tgAgent, err := agent.New(tgAgentConfig, registry)
+		if err != nil {
+			return fmt.Errorf("failed to create telegram agent: %w", err)
+		}
+
+		tgBot, err = telegram.NewBot(tgConfig, tgAgent, sessionManager)
 		if err != nil {
 			return fmt.Errorf("failed to create telegram bot: %w", err)
 		}
@@ -210,6 +258,7 @@ func printUsage() {
 	fmt.Println("Telegram Bot:")
 	fmt.Println("  Set TELEGRAM_BOT_TOKEN to enable Telegram bot")
 	fmt.Println("  Optionally set TELEGRAM_ALLOWED_USERS to restrict access")
+	fmt.Println("  Customize personality via PILOT.md in PILOT_HOME or working directory")
 	fmt.Println()
 }
 
@@ -239,6 +288,62 @@ func ensurePilotDirs(pilotDir string) error {
 	return nil
 }
 
+// loadPilotPersonality loads the personality from PILOT.md
+// Priority: $PILOT_HOME/PILOT.md > ./PILOT.md > default
+func loadPilotPersonality(pilotDir, workDir string) string {
+	// Try PILOT_HOME first
+	pilotMdPath := filepath.Join(pilotDir, "PILOT.md")
+	if content, err := os.ReadFile(pilotMdPath); err == nil {
+		log.Printf("Loaded personality from %s", pilotMdPath)
+		return string(content)
+	}
+
+	// Try working directory
+	pilotMdPath = filepath.Join(workDir, "PILOT.md")
+	if content, err := os.ReadFile(pilotMdPath); err == nil {
+		log.Printf("Loaded personality from %s", pilotMdPath)
+		return string(content)
+	}
+
+	// Fall back to default
+	log.Println("Using default personality (PILOT.md not found)")
+	return defaultPersonality
+}
+
+// buildTelegramSystemPrompt creates a system prompt for Telegram with personality
+func buildTelegramSystemPrompt(personality string, skillLoaders []*skills.Loader) string {
+	// Start with personality
+	prompt := personality
+
+	// Add available capabilities (without technical details)
+	prompt += `
+
+## What You Can Do
+You have access to helpful tools that let you:
+- Search the web for current information
+- Read and fetch content from websites
+- Read and write files
+- Run commands and scripts`
+
+	// Add skills if available
+	totalSkills := 0
+	for _, loader := range skillLoaders {
+		totalSkills += loader.Count()
+	}
+	if totalSkills > 0 {
+		prompt += `
+- Use specialized skills for documents, research, and more`
+	}
+
+	prompt += `
+
+Remember: When using these capabilities, don't mention technical details.
+Just naturally describe what you're doing and focus on helping the user!`
+
+	return prompt
+}
+
+// buildSystemPrompt creates the technical system prompt for HTTP API
 func buildSystemPrompt(skillLoaders []*skills.Loader) string {
 	systemPrompt := `You are a helpful AI assistant with access to tools.
 

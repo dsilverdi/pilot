@@ -79,7 +79,7 @@ func (b *Bot) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 
 	// Check if user is allowed
 	if !b.config.IsUserAllowed(userID) {
-		b.sendMessage(chatID, FormatUnauthorized())
+		b.sendPlainMessage(chatID, FormatUnauthorized())
 		return
 	}
 
@@ -100,17 +100,17 @@ func (b *Bot) handleCommand(ctx context.Context, msg *tgbotapi.Message) {
 
 	switch msg.Command() {
 	case "start":
-		b.sendMessage(chatID, FormatWelcome(b.api.Self.UserName))
+		b.sendPlainMessage(chatID, FormatWelcome(b.api.Self.UserName))
 
 	case "help":
-		b.sendMessage(chatID, FormatHelp())
+		b.sendPlainMessage(chatID, FormatHelp())
 
 	case "clear":
 		sessionID := b.sessionID(userID)
 		if err := b.sessionManager.Delete(sessionID); err != nil {
 			log.Printf("Failed to delete session %s: %v", sessionID, err)
 		}
-		b.sendMessage(chatID, FormatSessionCleared())
+		b.sendPlainMessage(chatID, FormatSessionCleared())
 
 	case "status":
 		// Count active sessions (rough estimate)
@@ -121,10 +121,10 @@ func (b *Bot) handleCommand(ctx context.Context, msg *tgbotapi.Message) {
 				tgSessions++
 			}
 		}
-		b.sendMessage(chatID, FormatStatus(b.api.Self.UserName, tgSessions))
+		b.sendPlainMessage(chatID, FormatStatus(b.api.Self.UserName, tgSessions))
 
 	default:
-		b.sendMessage(chatID, "Unknown command. Use /help to see available commands.")
+		b.sendPlainMessage(chatID, "Hmm, I don't know that command. Try /help to see what I can do!")
 	}
 }
 
@@ -147,7 +147,7 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	sess, err := b.sessionManager.GetOrCreate(sessionID)
 	if err != nil {
 		log.Printf("Failed to get session: %v", err)
-		b.sendMessage(chatID, FormatError(fmt.Errorf("failed to get session")))
+		b.sendPlainMessage(chatID, FormatError(fmt.Errorf("failed to get session")))
 		return
 	}
 
@@ -158,6 +158,7 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	// Collect response
 	var responseText strings.Builder
 	var toolCalls []string
+	toolNotified := false // Only notify for first tool call to avoid spam
 
 	// Event handler
 	eventHandler := func(e agent.Event) {
@@ -166,9 +167,12 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 			responseText.WriteString(e.Text)
 		case agent.EventToolCall:
 			toolCalls = append(toolCalls, e.ToolName)
-			// Send tool call notification
-			b.sendMessage(chatID, FormatToolCall(e.ToolName))
-			// Show typing again
+			// Only send notification for the first tool call
+			if !toolNotified {
+				b.sendPlainMessage(chatID, FormatToolCall(e.ToolName))
+				toolNotified = true
+			}
+			// Keep showing typing indicator
 			typing := tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping)
 			b.api.Send(typing)
 		}
@@ -178,7 +182,7 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	resultMessages, err := b.agent.Chat(ctx, messages, eventHandler)
 	if err != nil {
 		log.Printf("Agent error: %v", err)
-		b.sendMessage(chatID, FormatError(err))
+		b.sendPlainMessage(chatID, FormatError(err))
 		return
 	}
 
@@ -197,10 +201,11 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 		log.Printf("Failed to save session: %v", err)
 	}
 
-	// Send response (split if too long)
-	parts := SplitLongMessage(response)
+	// Format and send response with HTML (split if too long)
+	formattedResponse := FormatResponse(response)
+	parts := SplitLongMessageHTML(formattedResponse)
 	for _, part := range parts {
-		b.sendMessage(chatID, part)
+		b.sendMessageHTML(chatID, part)
 	}
 }
 
@@ -209,8 +214,20 @@ func (b *Bot) sessionID(userID int64) string {
 	return fmt.Sprintf("tg_%d", userID)
 }
 
-// sendMessage sends a text message to a chat
-func (b *Bot) sendMessage(chatID int64, text string) {
+// sendMessageHTML sends a text message with HTML formatting
+func (b *Bot) sendMessageHTML(chatID int64, text string) {
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = tgbotapi.ModeHTML
+	msg.DisableWebPagePreview = true
+	if _, err := b.api.Send(msg); err != nil {
+		log.Printf("Failed to send HTML message: %v", err)
+		// Fallback to plain text if HTML fails
+		b.sendPlainMessage(chatID, text)
+	}
+}
+
+// sendPlainMessage sends a plain text message without formatting
+func (b *Bot) sendPlainMessage(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	if _, err := b.api.Send(msg); err != nil {
 		log.Printf("Failed to send message: %v", err)
