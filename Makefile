@@ -1,8 +1,9 @@
-.PHONY: build run test test-cover clean install setup uninstall lint fmt help
+.PHONY: build build-pilot build-gateway run run-gateway test test-cover clean install setup uninstall lint fmt help
 
-# Binary name
-BINARY_NAME=pilot
-BUILD_DIR=.
+# Binary names
+PILOT_BINARY=pilot
+GATEWAY_BINARY=pilot-gateway
+BUILD_DIR=bin
 
 # Go parameters
 GOCMD=go
@@ -22,20 +23,50 @@ LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 # Install directory
 INSTALL_DIR ?= /usr/local/bin
 
+# Load .env file if it exists
+ifneq (,$(wildcard ./.env))
+    include .env
+    export
+endif
+
 ## help: Show this help message
 help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
-	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## /  /'
+	@grep -E '^## ' Makefile | sed 's/## /  /'
 
-## build: Build the binary
-build:
-	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/pilot
+## build: Build all binaries (pilot and pilot-gateway)
+build: build-pilot build-gateway
 
-## run: Build and run the application
-run: build
-	./$(BINARY_NAME)
+## build-pilot: Build the pilot CLI binary
+build-pilot:
+	@mkdir -p $(BUILD_DIR)
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(PILOT_BINARY) ./cmd/pilot
+
+## build-gateway: Build the pilot-gateway binary
+build-gateway:
+	@mkdir -p $(BUILD_DIR)
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(GATEWAY_BINARY) ./cmd/pilot-gateway
+
+## run: Build and run the pilot CLI
+run: build-pilot
+	./$(BUILD_DIR)/$(PILOT_BINARY)
+
+## run-gateway: Build and run the gateway server
+run-gateway: build-gateway
+	./$(BUILD_DIR)/$(GATEWAY_BINARY)
+
+## run-gateway-bg: Run gateway in background (logs to gateway.log)
+run-gateway-bg: build-gateway
+	@echo "Starting gateway in background..."
+	./$(BUILD_DIR)/$(GATEWAY_BINARY) > gateway.log 2>&1 &
+	@echo "Gateway started. Logs: gateway.log"
+	@echo "Stop with: make stop-gateway"
+
+## stop-gateway: Stop the background gateway
+stop-gateway:
+	@pkill -f $(GATEWAY_BINARY) 2>/dev/null || echo "Gateway not running"
 
 ## test: Run all tests
 test:
@@ -73,37 +104,49 @@ tidy:
 
 ## clean: Remove build artifacts
 clean:
-	rm -f $(BINARY_NAME)
-	rm -f coverage.out coverage.html
+	rm -rf $(BUILD_DIR)
+	rm -f coverage.out coverage.html gateway.log
 
-## install: Install binary to /usr/local/bin (requires sudo)
+## install: Install binaries to /usr/local/bin (requires sudo)
 install: build
-	@echo "Installing $(BINARY_NAME) to $(INSTALL_DIR)..."
-	sudo cp $(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
-	sudo chmod +x $(INSTALL_DIR)/$(BINARY_NAME)
-	@echo "Installed! Run 'pilot' to start"
+	@echo "Installing binaries to $(INSTALL_DIR)..."
+	sudo cp $(BUILD_DIR)/$(PILOT_BINARY) $(INSTALL_DIR)/$(PILOT_BINARY)
+	sudo cp $(BUILD_DIR)/$(GATEWAY_BINARY) $(INSTALL_DIR)/$(GATEWAY_BINARY)
+	sudo chmod +x $(INSTALL_DIR)/$(PILOT_BINARY)
+	sudo chmod +x $(INSTALL_DIR)/$(GATEWAY_BINARY)
+	@echo "Installed! Run 'pilot' or 'pilot-gateway' to start"
 
-## install-user: Install binary to ~/bin (no sudo required)
+## install-user: Install binaries to ~/bin (no sudo required)
 install-user: build
 	@mkdir -p $(HOME)/bin
-	cp $(BINARY_NAME) $(HOME)/bin/$(BINARY_NAME)
-	chmod +x $(HOME)/bin/$(BINARY_NAME)
-	@echo "Installed to ~/bin/$(BINARY_NAME)"
+	cp $(BUILD_DIR)/$(PILOT_BINARY) $(HOME)/bin/$(PILOT_BINARY)
+	cp $(BUILD_DIR)/$(GATEWAY_BINARY) $(HOME)/bin/$(GATEWAY_BINARY)
+	chmod +x $(HOME)/bin/$(PILOT_BINARY)
+	chmod +x $(HOME)/bin/$(GATEWAY_BINARY)
+	@echo "Installed to ~/bin/"
 	@if echo "$$PATH" | grep -q "$(HOME)/bin"; then \
-		echo "Run 'pilot' to start"; \
+		echo "Run 'pilot' or 'pilot-gateway' to start"; \
 	else \
 		echo "Add this to your shell config: export PATH=\"\$$HOME/bin:\$$PATH\""; \
 	fi
 
-## uninstall: Remove installed binary
+## uninstall: Remove installed binaries
 uninstall:
-	@if [ -f $(INSTALL_DIR)/$(BINARY_NAME) ]; then \
-		sudo rm -f $(INSTALL_DIR)/$(BINARY_NAME); \
-		echo "Removed $(INSTALL_DIR)/$(BINARY_NAME)"; \
+	@if [ -f $(INSTALL_DIR)/$(PILOT_BINARY) ]; then \
+		sudo rm -f $(INSTALL_DIR)/$(PILOT_BINARY); \
+		echo "Removed $(INSTALL_DIR)/$(PILOT_BINARY)"; \
 	fi
-	@if [ -f $(HOME)/bin/$(BINARY_NAME) ]; then \
-		rm -f $(HOME)/bin/$(BINARY_NAME); \
-		echo "Removed $(HOME)/bin/$(BINARY_NAME)"; \
+	@if [ -f $(INSTALL_DIR)/$(GATEWAY_BINARY) ]; then \
+		sudo rm -f $(INSTALL_DIR)/$(GATEWAY_BINARY); \
+		echo "Removed $(INSTALL_DIR)/$(GATEWAY_BINARY)"; \
+	fi
+	@if [ -f $(HOME)/bin/$(PILOT_BINARY) ]; then \
+		rm -f $(HOME)/bin/$(PILOT_BINARY); \
+		echo "Removed $(HOME)/bin/$(PILOT_BINARY)"; \
+	fi
+	@if [ -f $(HOME)/bin/$(GATEWAY_BINARY) ]; then \
+		rm -f $(HOME)/bin/$(GATEWAY_BINARY); \
+		echo "Removed $(HOME)/bin/$(GATEWAY_BINARY)"; \
 	fi
 
 ## setup: Run the setup script (interactive installation)
@@ -131,3 +174,23 @@ update:
 version:
 	@echo "Version: $(VERSION)"
 	@echo "Build time: $(BUILD_TIME)"
+
+## api-key-generate: Generate a new API key (usage: make api-key-generate NAME=mykey)
+api-key-generate: build-pilot
+	@if [ -z "$(NAME)" ]; then \
+		echo "Usage: make api-key-generate NAME=<key-name>"; \
+		exit 1; \
+	fi
+	./$(BUILD_DIR)/$(PILOT_BINARY) api-key generate --name $(NAME)
+
+## api-key-list: List all API keys
+api-key-list: build-pilot
+	./$(BUILD_DIR)/$(PILOT_BINARY) api-key list
+
+## api-key-revoke: Revoke an API key (usage: make api-key-revoke NAME=mykey)
+api-key-revoke: build-pilot
+	@if [ -z "$(NAME)" ]; then \
+		echo "Usage: make api-key-revoke NAME=<key-name>"; \
+		exit 1; \
+	fi
+	./$(BUILD_DIR)/$(PILOT_BINARY) api-key revoke --name $(NAME)

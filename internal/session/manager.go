@@ -99,6 +99,11 @@ func (m *Manager) SaveCurrent() error {
 	return m.store.Save(m.current)
 }
 
+// Save persists a session
+func (m *Manager) Save(s *Session) error {
+	return m.store.Save(s)
+}
+
 // GetOrCreate gets an existing session by name or creates a new one
 func (m *Manager) GetOrCreate(name string) (*Session, error) {
 	// Check if session with this name exists
