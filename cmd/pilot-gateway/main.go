@@ -13,6 +13,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/dsilverdi/pilot/internal/agent"
 	"github.com/dsilverdi/pilot/internal/browser"
+	"github.com/dsilverdi/pilot/internal/channel/telegram"
 	"github.com/dsilverdi/pilot/internal/gateway"
 	"github.com/dsilverdi/pilot/internal/gateway/apikey"
 	"github.com/dsilverdi/pilot/internal/session"
@@ -143,6 +144,18 @@ func run() error {
 	// Create gateway server
 	srv := gateway.NewServer(ag, sessionManager, registry, keyManager, gwConfig)
 
+	// Initialize Telegram bot if configured
+	tgConfig := telegram.LoadConfig()
+	var tgBot *telegram.Bot
+	if tgConfig.Enabled() {
+		var err error
+		tgBot, err = telegram.NewBot(tgConfig, ag, sessionManager)
+		if err != nil {
+			return fmt.Errorf("failed to create telegram bot: %w", err)
+		}
+		log.Printf("Telegram bot enabled: @%s", tgBot.Username())
+	}
+
 	// Setup graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -159,7 +172,16 @@ func run() error {
 		cancel()
 	}()
 
-	// Start server
+	// Start Telegram bot in background (if enabled)
+	if tgBot != nil {
+		go func() {
+			if err := tgBot.Start(ctx); err != nil {
+				log.Printf("Telegram bot error: %v", err)
+			}
+		}()
+	}
+
+	// Start HTTP server (blocking)
 	return srv.Start()
 }
 
@@ -184,6 +206,10 @@ func printUsage() {
 	fmt.Println("Authentication:")
 	fmt.Println("  Generate API keys using: pilot api-key generate --name <name>")
 	fmt.Println("  Include key in requests: X-API-Key: psk_...")
+	fmt.Println()
+	fmt.Println("Telegram Bot:")
+	fmt.Println("  Set TELEGRAM_BOT_TOKEN to enable Telegram bot")
+	fmt.Println("  Optionally set TELEGRAM_ALLOWED_USERS to restrict access")
 	fmt.Println()
 }
 
