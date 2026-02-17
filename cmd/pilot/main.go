@@ -194,8 +194,14 @@ func handleAPIKeyRevoke(keyManager *apikey.Manager, args []string) error {
 	return nil
 }
 
-// getPilotDir returns the path to ~/.pilot directory
+// getPilotDir returns the path to pilot data directory
+// Uses PILOT_HOME env var if set, otherwise ~/.pilot
 func getPilotDir() (string, error) {
+	// Check PILOT_HOME first (for systemd/production deployments)
+	if pilotHome := os.Getenv("PILOT_HOME"); pilotHome != "" {
+		return pilotHome, nil
+	}
+	// Fall back to ~/.pilot
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

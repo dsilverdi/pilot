@@ -194,3 +194,17 @@ api-key-revoke: build-pilot
 		exit 1; \
 	fi
 	./$(BUILD_DIR)/$(PILOT_BINARY) api-key revoke --name $(NAME)
+
+## setup-systemd: Install pilot-gateway as a systemd service (requires sudo)
+setup-systemd: build
+	@echo "Installing pilot-gateway as systemd service..."
+	@echo "This requires sudo privileges."
+	sudo ./scripts/setup-systemd.sh install
+
+## uninstall-systemd: Remove the systemd service
+uninstall-systemd:
+	sudo ./scripts/setup-systemd.sh uninstall
+
+## status-systemd: Show systemd service status
+status-systemd:
+	./scripts/setup-systemd.sh status

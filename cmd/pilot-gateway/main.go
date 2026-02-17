@@ -214,6 +214,11 @@ func printUsage() {
 }
 
 func getPilotDir() (string, error) {
+	// Check PILOT_HOME first (for systemd/production deployments)
+	if pilotHome := os.Getenv("PILOT_HOME"); pilotHome != "" {
+		return pilotHome, nil
+	}
+	// Fall back to ~/.pilot
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

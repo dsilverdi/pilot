@@ -32,12 +32,15 @@ The gateway will start on `http://localhost:8080`.
 |----------|----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | Yes* | - | Anthropic API key |
 | `ANTHROPIC_OAUTH_TOKEN` | Yes* | - | OAuth token (higher priority) |
+| `PILOT_HOME` | No | `~/.pilot` | Data directory (sessions, keys) |
 | `GATEWAY_ADDR` | No | `:8080` | Listen address |
 | `SEARXNG_URL` | No | `http://localhost:8081` | SearXNG URL for web search |
 | `TELEGRAM_BOT_TOKEN` | No | - | Enables Telegram bot |
 | `TELEGRAM_ALLOWED_USERS` | No | - | Comma-separated user IDs |
 
 *One of `ANTHROPIC_API_KEY` or `ANTHROPIC_OAUTH_TOKEN` is required.
+
+**Note:** Set `PILOT_HOME` when running as a systemd service to use a shared data directory (e.g., `/var/lib/pilot`).
 
 ### Command Line Options
 
@@ -306,7 +309,33 @@ services:
 
 ## Running as a Service
 
-### systemd (Linux)
+### Automated Setup (Recommended)
+
+Use the provided setup script:
+
+```bash
+# Build first
+make build
+
+# Run setup (requires sudo)
+make setup-systemd
+```
+
+This will:
+- Create a `pilot` system user
+- Install binaries to `/opt/pilot`
+- Create data directory at `/var/lib/pilot`
+- Configure systemd service
+- Generate initial API key
+
+After setup, edit the config:
+```bash
+sudo nano /opt/pilot/.env
+# Add your ANTHROPIC_API_KEY
+sudo systemctl restart pilot-gateway
+```
+
+### Manual systemd Setup (Linux)
 
 Create `/etc/systemd/system/pilot-gateway.service`:
 
@@ -322,18 +351,37 @@ WorkingDirectory=/opt/pilot
 ExecStart=/opt/pilot/bin/pilot-gateway
 Restart=always
 RestartSec=5
-Environment=ANTHROPIC_API_KEY=your-key
-Environment=GATEWAY_ADDR=:8080
+EnvironmentFile=/opt/pilot/.env
 
 [Install]
 WantedBy=multi-user.target
 ```
 
+Create `/opt/pilot/.env`:
+```bash
+ANTHROPIC_API_KEY=your-key
+PILOT_HOME=/var/lib/pilot
+GATEWAY_ADDR=:8080
+```
+
 Enable and start:
 
 ```bash
+sudo systemctl daemon-reload
 sudo systemctl enable pilot-gateway
 sudo systemctl start pilot-gateway
+```
+
+### Managing API Keys with systemd
+
+When running as a systemd service, use the service user and `PILOT_HOME`:
+
+```bash
+# Generate API key
+sudo -u pilot PILOT_HOME=/var/lib/pilot /opt/pilot/bin/pilot api-key generate --name myapp
+
+# List keys
+sudo -u pilot PILOT_HOME=/var/lib/pilot /opt/pilot/bin/pilot api-key list
 ```
 
 ### launchd (macOS)
