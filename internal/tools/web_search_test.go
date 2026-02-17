@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +10,7 @@ import (
 )
 
 func TestWebSearchToolName(t *testing.T) {
-	tool := NewWebSearchTool("test-api-key")
+	tool := NewWebSearchTool()
 
 	if tool.Name() != "web_search" {
 		t.Errorf("expected name 'web_search', got %q", tool.Name())
@@ -19,7 +18,7 @@ func TestWebSearchToolName(t *testing.T) {
 }
 
 func TestWebSearchToolDescription(t *testing.T) {
-	tool := NewWebSearchTool("test-api-key")
+	tool := NewWebSearchTool()
 
 	desc := tool.Description()
 	if desc == "" {
@@ -28,10 +27,13 @@ func TestWebSearchToolDescription(t *testing.T) {
 	if !strings.Contains(strings.ToLower(desc), "search") {
 		t.Error("description should mention search")
 	}
+	if !strings.Contains(strings.ToLower(desc), "searxng") {
+		t.Error("description should mention SearXNG")
+	}
 }
 
 func TestWebSearchToolInputSchema(t *testing.T) {
-	tool := NewWebSearchTool("test-api-key")
+	tool := NewWebSearchTool()
 
 	schema := tool.InputSchema()
 
@@ -43,91 +45,16 @@ func TestWebSearchToolInputSchema(t *testing.T) {
 	if _, ok := props["query"]; !ok {
 		t.Error("schema should have 'query' property")
 	}
-}
-
-func TestWebSearchToolExecuteSuccess(t *testing.T) {
-	// Create mock server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify request
-		if r.Header.Get("X-Subscription-Token") != "test-api-key" {
-			t.Error("missing or incorrect API key header")
-		}
-
-		query := r.URL.Query().Get("q")
-		if query != "golang concurrency" {
-			t.Errorf("expected query 'golang concurrency', got %q", query)
-		}
-
-		// Return mock response
-		response := BraveSearchResponse{
-			Web: WebResults{
-				Results: []WebResult{
-					{
-						Title:       "Go Concurrency Patterns",
-						URL:         "https://go.dev/blog/pipelines",
-						Description: "Concurrency is the key to designing high performance network services.",
-					},
-					{
-						Title:       "Effective Go - Concurrency",
-						URL:         "https://go.dev/doc/effective_go#concurrency",
-						Description: "Go encourages a different approach to concurrent programming.",
-					},
-				},
-			},
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
-	}))
-	defer server.Close()
-
-	tool := NewWebSearchTool("test-api-key")
-	tool.baseURL = server.URL // Override for testing
-
-	input := json.RawMessage(`{"query": "golang concurrency"}`)
-	result, err := tool.Execute(context.Background(), input)
-
-	if err != nil {
-		t.Fatalf("Execute() error = %v", err)
+	if _, ok := props["count"]; !ok {
+		t.Error("schema should have 'count' property")
 	}
-
-	if !strings.Contains(result, "Go Concurrency Patterns") {
-		t.Error("result should contain first result title")
-	}
-	if !strings.Contains(result, "https://go.dev/blog/pipelines") {
-		t.Error("result should contain first result URL")
-	}
-}
-
-func TestWebSearchToolExecuteEmptyResults(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		response := BraveSearchResponse{
-			Web: WebResults{
-				Results: []WebResult{},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
-	}))
-	defer server.Close()
-
-	tool := NewWebSearchTool("test-api-key")
-	tool.baseURL = server.URL
-
-	input := json.RawMessage(`{"query": "asdfghjklzxcvbnm123456"}`)
-	result, err := tool.Execute(context.Background(), input)
-
-	if err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-
-	if !strings.Contains(strings.ToLower(result), "no results") {
-		t.Error("result should indicate no results found")
+	if _, ok := props["category"]; !ok {
+		t.Error("schema should have 'category' property")
 	}
 }
 
 func TestWebSearchToolExecuteInvalidJSON(t *testing.T) {
-	tool := NewWebSearchTool("test-api-key")
+	tool := NewWebSearchTool()
 
 	input := json.RawMessage(`{invalid json}`)
 	_, err := tool.Execute(context.Background(), input)
@@ -138,7 +65,7 @@ func TestWebSearchToolExecuteInvalidJSON(t *testing.T) {
 }
 
 func TestWebSearchToolExecuteMissingQuery(t *testing.T) {
-	tool := NewWebSearchTool("test-api-key")
+	tool := NewWebSearchTool()
 
 	input := json.RawMessage(`{}`)
 	_, err := tool.Execute(context.Background(), input)
@@ -146,10 +73,13 @@ func TestWebSearchToolExecuteMissingQuery(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for missing query")
 	}
+	if err != nil && !strings.Contains(err.Error(), "query is required") {
+		t.Errorf("error should mention query is required, got: %v", err)
+	}
 }
 
 func TestWebSearchToolExecuteEmptyQuery(t *testing.T) {
-	tool := NewWebSearchTool("test-api-key")
+	tool := NewWebSearchTool()
 
 	input := json.RawMessage(`{"query": ""}`)
 	_, err := tool.Execute(context.Background(), input)
@@ -159,47 +89,25 @@ func TestWebSearchToolExecuteEmptyQuery(t *testing.T) {
 	}
 }
 
-func TestWebSearchToolExecuteAPIError(t *testing.T) {
+func TestWebSearchToolWithMockServer(t *testing.T) {
+	// Create mock SearXNG server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-		io.WriteString(w, `{"error": "Invalid API key"}`)
-	}))
-	defer server.Close()
-
-	tool := NewWebSearchTool("invalid-key")
-	tool.baseURL = server.URL
-
-	input := json.RawMessage(`{"query": "test"}`)
-	_, err := tool.Execute(context.Background(), input)
-
-	if err == nil {
-		t.Error("expected error for API error response")
-	}
-}
-
-func TestWebSearchToolExecuteNetworkError(t *testing.T) {
-	tool := NewWebSearchTool("test-api-key")
-	tool.baseURL = "http://localhost:99999" // Invalid port
-
-	input := json.RawMessage(`{"query": "test"}`)
-	_, err := tool.Execute(context.Background(), input)
-
-	if err == nil {
-		t.Error("expected error for network failure")
-	}
-}
-
-func TestWebSearchToolExecuteWithCount(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		count := r.URL.Query().Get("count")
-		if count != "5" {
-			t.Errorf("expected count '5', got %q", count)
-		}
-
-		response := BraveSearchResponse{
-			Web: WebResults{
-				Results: []WebResult{
-					{Title: "Result 1", URL: "https://example.com/1", Description: "Desc 1"},
+		response := SearXNGResponse{
+			Query: r.URL.Query().Get("q"),
+			Results: []SearXNGResult{
+				{
+					Title:   "Go Concurrency",
+					URL:     "https://go.dev/doc",
+					Content: "Learn about Go concurrency.",
+					Engines: []string{"google", "brave"},
+					Score:   9.0,
+				},
+				{
+					Title:   "Go Tutorial",
+					URL:     "https://go.dev/tour",
+					Content: "Interactive Go tutorial.",
+					Engines: []string{"startpage"},
+					Score:   5.0,
 				},
 			},
 		}
@@ -208,26 +116,79 @@ func TestWebSearchToolExecuteWithCount(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := NewWebSearchTool("test-api-key")
-	tool.baseURL = server.URL
+	// Create tool with mock server URL
+	tool := &WebSearchTool{
+		searxngURL: server.URL,
+		httpClient: server.Client(),
+	}
 
-	input := json.RawMessage(`{"query": "test", "count": 5}`)
-	_, err := tool.Execute(context.Background(), input)
+	input := json.RawMessage(`{"query": "golang concurrency"}`)
+	result, err := tool.Execute(context.Background(), input)
 
 	if err != nil {
-		t.Fatalf("Execute() error = %v", err)
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(result, "golang concurrency") {
+		t.Error("result should contain query")
+	}
+	if !strings.Contains(result, "Go Concurrency") {
+		t.Error("result should contain first title")
+	}
+	if !strings.Contains(result, "https://go.dev/doc") {
+		t.Error("result should contain first URL")
+	}
+	if !strings.Contains(result, "google, brave") {
+		t.Error("result should contain engines")
+	}
+}
+
+func TestWebSearchToolFormatResults(t *testing.T) {
+	tool := NewWebSearchTool()
+
+	results := []SearXNGResult{
+		{
+			Title:   "Go Concurrency",
+			URL:     "https://go.dev/doc",
+			Content: "Learn about Go concurrency.",
+			Engines: []string{"google", "brave"},
+		},
+		{
+			Title:   "Go Tutorial",
+			URL:     "https://go.dev/tour",
+			Content: "Interactive Go tutorial.",
+			Engines: []string{"startpage"},
+		},
+	}
+
+	formatted := tool.formatResults("golang", results)
+
+	if !strings.Contains(formatted, "golang") {
+		t.Error("formatted result should contain query")
+	}
+	if !strings.Contains(formatted, "Go Concurrency") {
+		t.Error("formatted result should contain first title")
+	}
+	if !strings.Contains(formatted, "https://go.dev/doc") {
+		t.Error("formatted result should contain first URL")
+	}
+	if !strings.Contains(formatted, "Go Tutorial") {
+		t.Error("formatted result should contain second title")
+	}
+}
+
+func TestWebSearchToolFormatResultsEmpty(t *testing.T) {
+	tool := NewWebSearchTool()
+
+	formatted := tool.formatResults("nonexistent", []SearXNGResult{})
+
+	if !strings.Contains(strings.ToLower(formatted), "no results") {
+		t.Error("formatted result should indicate no results found")
 	}
 }
 
 func TestWebSearchToolContextCancellation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Simulate slow response
-		<-r.Context().Done()
-	}))
-	defer server.Close()
-
-	tool := NewWebSearchTool("test-api-key")
-	tool.baseURL = server.URL
+	tool := NewWebSearchTool()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
@@ -235,43 +196,8 @@ func TestWebSearchToolContextCancellation(t *testing.T) {
 	input := json.RawMessage(`{"query": "test"}`)
 	_, err := tool.Execute(ctx, input)
 
+	// Should error due to cancelled context
 	if err == nil {
 		t.Error("expected error for cancelled context")
-	}
-}
-
-func TestWebSearchToolFormatsResults(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		response := BraveSearchResponse{
-			Web: WebResults{
-				Results: []WebResult{
-					{
-						Title:       "Test Title",
-						URL:         "https://example.com",
-						Description: "Test description with details.",
-					},
-				},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
-	}))
-	defer server.Close()
-
-	tool := NewWebSearchTool("test-api-key")
-	tool.baseURL = server.URL
-
-	input := json.RawMessage(`{"query": "test"}`)
-	result, _ := tool.Execute(context.Background(), input)
-
-	// Check formatting
-	if !strings.Contains(result, "Test Title") {
-		t.Error("result should contain title")
-	}
-	if !strings.Contains(result, "https://example.com") {
-		t.Error("result should contain URL")
-	}
-	if !strings.Contains(result, "Test description") {
-		t.Error("result should contain description")
 	}
 }

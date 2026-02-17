@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
-	"strconv"
+	"os"
 	"strings"
 	"time"
 
@@ -14,26 +15,44 @@ import (
 )
 
 const (
-	defaultBraveSearchURL = "https://api.search.brave.com/res/v1/web/search"
 	defaultResultCount    = 5
 	maxResultCount        = 20
-	requestTimeout        = 30 * time.Second
+	searchTimeout         = 30 * time.Second
+	defaultSearXNGURL     = "http://localhost:8081"
 )
 
-// WebSearchTool searches the web using Brave Search API
-type WebSearchTool struct {
-	apiKey  string
-	baseURL string
-	client  *http.Client
+// SearXNGResult represents a single search result from SearXNG
+type SearXNGResult struct {
+	Title   string   `json:"title"`
+	URL     string   `json:"url"`
+	Content string   `json:"content"`
+	Engines []string `json:"engines"`
+	Score   float64  `json:"score"`
 }
 
-// NewWebSearchTool creates a new web search tool
-func NewWebSearchTool(apiKey string) *WebSearchTool {
+// SearXNGResponse represents the response from SearXNG API
+type SearXNGResponse struct {
+	Results []SearXNGResult `json:"results"`
+	Query   string          `json:"query"`
+}
+
+// WebSearchTool searches the web using SearXNG
+type WebSearchTool struct {
+	searxngURL string
+	httpClient *http.Client
+}
+
+// NewWebSearchTool creates a new web search tool using SearXNG
+func NewWebSearchTool() *WebSearchTool {
+	searxngURL := os.Getenv("SEARXNG_URL")
+	if searxngURL == "" {
+		searxngURL = defaultSearXNGURL
+	}
+
 	return &WebSearchTool{
-		apiKey:  apiKey,
-		baseURL: defaultBraveSearchURL,
-		client: &http.Client{
-			Timeout: requestTimeout,
+		searxngURL: searxngURL,
+		httpClient: &http.Client{
+			Timeout: searchTimeout,
 		},
 	}
 }
@@ -41,7 +60,13 @@ func NewWebSearchTool(apiKey string) *WebSearchTool {
 func (t *WebSearchTool) Name() string { return "web_search" }
 
 func (t *WebSearchTool) Description() string {
-	return "Search the web for information using Brave Search. Returns relevant search results with titles, URLs, and descriptions."
+	return `Search the web for information using SearXNG (aggregates Google, Brave, Startpage, and more).
+
+Use this tool when you need to:
+- Find current information about a topic
+- Research recent news or events
+- Look up documentation or tutorials
+- Verify facts or find sources`
 }
 
 func (t *WebSearchTool) InputSchema() anthropic.ToolInputSchemaParam {
@@ -55,31 +80,19 @@ func (t *WebSearchTool) InputSchema() anthropic.ToolInputSchemaParam {
 				"type":        "integer",
 				"description": "Number of results to return (1-20, default 5)",
 			},
+			"category": map[string]any{
+				"type":        "string",
+				"description": "Search category: general, images, news, videos, it, science (default: general)",
+			},
 		},
 		Required: []string{"query"},
 	}
 }
 
 type webSearchInput struct {
-	Query string `json:"query"`
-	Count int    `json:"count,omitempty"`
-}
-
-// BraveSearchResponse represents the Brave Search API response
-type BraveSearchResponse struct {
-	Web WebResults `json:"web"`
-}
-
-// WebResults contains the web search results
-type WebResults struct {
-	Results []WebResult `json:"results"`
-}
-
-// WebResult represents a single search result
-type WebResult struct {
-	Title       string `json:"title"`
-	URL         string `json:"url"`
-	Description string `json:"description"`
+	Query    string `json:"query"`
+	Count    int    `json:"count,omitempty"`
+	Category string `json:"category,omitempty"`
 }
 
 func (t *WebSearchTool) Execute(ctx context.Context, input json.RawMessage) (string, error) {
@@ -101,49 +114,53 @@ func (t *WebSearchTool) Execute(ctx context.Context, input json.RawMessage) (str
 		count = maxResultCount
 	}
 
-	// Build request URL
-	reqURL, err := url.Parse(t.baseURL)
-	if err != nil {
-		return "", fmt.Errorf("invalid base URL: %w", err)
+	// Set default category
+	category := in.Category
+	if category == "" {
+		category = "general"
 	}
 
-	q := reqURL.Query()
-	q.Set("q", in.Query)
-	q.Set("count", strconv.Itoa(count))
-	reqURL.RawQuery = q.Encode()
+	// Build SearXNG URL
+	searchURL := fmt.Sprintf("%s/search?q=%s&format=json&categories=%s&language=en",
+		t.searxngURL,
+		url.QueryEscape(in.Query),
+		url.QueryEscape(category),
+	)
 
-	// Create request
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
+	// Create request with context
+	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Subscription-Token", t.apiKey)
-
 	// Execute request
-	resp, err := t.client.Do(req)
+	resp, err := t.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("search request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Check response status
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("search API error: status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("search failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Parse response
-	var searchResp BraveSearchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
-		return "", fmt.Errorf("failed to parse response: %w", err)
+	var searxResp SearXNGResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searxResp); err != nil {
+		return "", fmt.Errorf("failed to parse search results: %w", err)
 	}
 
-	// Format results
-	return t.formatResults(in.Query, searchResp.Web.Results), nil
+	// Limit results
+	results := searxResp.Results
+	if len(results) > count {
+		results = results[:count]
+	}
+
+	return t.formatResults(in.Query, results), nil
 }
 
-func (t *WebSearchTool) formatResults(query string, results []WebResult) string {
+func (t *WebSearchTool) formatResults(query string, results []SearXNGResult) string {
 	if len(results) == 0 {
 		return fmt.Sprintf("No results found for query: %q", query)
 	}
@@ -154,8 +171,11 @@ func (t *WebSearchTool) formatResults(query string, results []WebResult) string 
 	for i, result := range results {
 		sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, result.Title))
 		sb.WriteString(fmt.Sprintf("   URL: %s\n", result.URL))
-		if result.Description != "" {
-			sb.WriteString(fmt.Sprintf("   %s\n", result.Description))
+		if result.Content != "" {
+			sb.WriteString(fmt.Sprintf("   %s\n", result.Content))
+		}
+		if len(result.Engines) > 0 {
+			sb.WriteString(fmt.Sprintf("   Sources: %s\n", strings.Join(result.Engines, ", ")))
 		}
 		sb.WriteString("\n")
 	}
