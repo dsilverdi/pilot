@@ -1,122 +1,121 @@
-# Pilot
+<div align="center">
+  <img src="assets/banner.png" alt="Pilot" width="1024">
 
-A lightweight agentic CLI system built with Go and the Anthropic SDK. Run AI agents via CLI, HTTP API, or Telegram bot.
+  <h1>Pilot: Lightweight Personal AI Assistant in Go</h1>
 
-## Features
+  <h3>Tool Calling · Session Persistence · Skills System</h3>
 
-- **Interactive CLI** - Conversational interface with streaming responses
-- **HTTP Gateway** - REST API for 24/7 agent access (`pilot-gateway`)
-- **Telegram Bot** - Chat with your agent via Telegram
-- **File Operations** - Read and write files via tool calls
-- **Web Search** - Search the web using SearXNG (self-hosted)
-- **Web Fetch** - Fetch and extract content from web pages
-- **Bash Execution** - Run shell commands
-- **Session Management** - Persist and switch between conversation sessions
-- **Skills System** - Extensible markdown-based skills (Agent Skills spec)
-- **API Key Management** - Secure API key generation for gateway access
+  <p>
+    <img src="https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
+    <img src="https://img.shields.io/badge/Channels-CLI%20%7C%20HTTP%20%7C%20Telegram-blue" alt="Channels">
+    <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
+  </p>
+</div>
+
+Lightweight agentic runtime built with Go and the Anthropic SDK. Run your assistant from terminal, HTTP API, or Telegram with persistent sessions and tool integrations.
+
+## Highlights
+
+- Interactive CLI with streaming responses
+- HTTP gateway for always-on agent access
+- Optional Telegram channel on top of the gateway
+- Tooling for file ops, shell commands, web search, and web fetch
+- Session persistence and skill-based extensibility
+- API key management for secured gateway access
 
 ## Quick Start
 
 ```bash
-# Build
+# 1) Build binaries
 make build
 
-# Set authentication
+# 2) Set one auth method
 export ANTHROPIC_API_KEY="your-api-key"
-# OR use OAuth token
+# or
 export ANTHROPIC_OAUTH_TOKEN="your-oauth-token"
 
-# Run CLI
+# 3) Run CLI
 ./bin/pilot
+```
 
-# Or run gateway (HTTP + optional Telegram)
+Run the gateway instead:
+
+```bash
 ./bin/pilot-gateway
 ```
 
-## Installation
+## Install
 
-### Quick Install (requires sudo)
+System install (requires sudo):
 
 ```bash
 make install
 ```
 
-### User Install (no sudo)
+User-local install (no sudo):
 
 ```bash
 make install-user
-# Then add ~/bin to PATH if not already:
-# export PATH="$HOME/bin:$PATH"
-```
-
-### Build Only
-
-```bash
-make build
-# Binaries are created in bin/
+# If needed: export PATH="$HOME/bin:$PATH"
 ```
 
 ## Components
 
-### 1. CLI (`pilot`)
-
-Interactive command-line interface for chatting with the agent.
+### CLI (`pilot`)
 
 ```bash
 # Interactive mode
 pilot
 
-# Execute a prompt directly
+# Single prompt mode
 pilot -p "What is Go?"
 
-# Manage API keys for gateway
+# API key management
 pilot api-key generate --name my-app
 pilot api-key list
 pilot api-key revoke --name my-app
 ```
 
-### 2. Gateway (`pilot-gateway`)
-
-HTTP service that exposes the agent via REST API. Optionally includes Telegram bot.
+### Gateway (`pilot-gateway`)
 
 ```bash
-# Start gateway
+# Default address
 ./bin/pilot-gateway
 
-# With custom address
+# Custom address
 ./bin/pilot-gateway --addr :3000
 ```
 
-**API Endpoints:**
+API endpoints:
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Health check |
-| POST | `/chat` | Send message, get response |
-| POST | `/chat/stream` | Streaming response (SSE) |
-| DELETE | `/session/{id}` | Delete a session |
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Health check |
+| `POST` | `/chat` | Non-streaming chat response |
+| `POST` | `/chat/stream` | Streaming chat response (SSE) |
+| `DELETE` | `/session/{id}` | Delete a session |
 
-See [Gateway Documentation](docs/gateway.md) for details.
+See `docs/gateway.md` for full request/response details.
 
-### 3. Telegram Bot
+### Telegram Channel
 
-Built into `pilot-gateway`. Enable by setting `TELEGRAM_BOT_TOKEN`.
+Telegram support is embedded in `pilot-gateway`.
 
 ```bash
 export TELEGRAM_BOT_TOKEN="123456:ABC-xyz..."
 ./bin/pilot-gateway
 ```
 
-See [Telegram Setup Guide](docs/telegram.md) for details.
+See `docs/telegram.md` for setup and access control.
 
-## Environment Variables
+## Configuration
 
 ```bash
-# Authentication (one required)
+# Authentication (set one)
 ANTHROPIC_API_KEY=sk-ant-api-...
 ANTHROPIC_OAUTH_TOKEN=sk-ant-oat-...
 
-# Web Search (optional)
+# Web search (optional)
 SEARXNG_URL=http://localhost:8081
 
 # Gateway (optional)
@@ -130,52 +129,40 @@ TELEGRAM_ALLOWED_USERS=123456,789012
 ## CLI Commands
 
 | Command | Description |
-|---------|-------------|
+| --- | --- |
 | `/help` | Show available commands |
-| `/session new [name]` | Create a new session |
-| `/session list` | List all sessions |
-| `/session switch <id>` | Switch to a session |
+| `/session new [name]` | Create a session |
+| `/session list` | List sessions |
+| `/session switch <id>` | Switch active session |
 | `/session delete <id>` | Delete a session |
-| `/clear` | Clear conversation history |
-| `/skill list` | List available skills |
+| `/clear` | Clear active conversation |
+| `/skill list` | List loaded skills |
 | `/tool list` | List available tools |
-| `/exit` | Exit the CLI |
-
-## API Key Subcommand
-
-```bash
-# Generate a new API key for gateway
-pilot api-key generate --name telegram-bot
-
-# List all keys
-pilot api-key list
-
-# Revoke a key
-pilot api-key revoke --name telegram-bot
-```
+| `/exit` | Exit CLI |
 
 ## Available Tools
 
 | Tool | Description |
-|------|-------------|
+| --- | --- |
 | `file_read` | Read file contents |
-| `file_write` | Write content to files |
+| `file_write` | Write file contents |
 | `bash_exec` | Execute shell commands |
-| `web_search` | Search the web (via SearXNG) |
-| `web_fetch` | Fetch and extract web page content |
-| `invoke_skill` | Invoke specialized skills |
+| `web_search` | Search the web via SearXNG |
+| `web_fetch` | Fetch and extract web content |
+| `invoke_skill` | Run specialized skills |
 
 ## Skills
 
-Skills are markdown files following the [Agent Skills spec](https://agentskills.io). Place them in `~/.pilot/skills/` or the local `skills/` directory.
+Skills follow the [Agent Skills spec](https://agentskills.io) and can be loaded from `~/.pilot/skills/` or local `skills/`.
 
-```
+```text
 skills/
 └── my-skill/
     └── SKILL.md
 ```
 
-Example SKILL.md:
+Minimal example:
+
 ```markdown
 ---
 name: my-skill
@@ -183,67 +170,61 @@ description: What this skill does and when to use it.
 ---
 
 # My Skill
-
 Instructions for the skill...
 ```
 
 ## Data Directory
 
-Pilot stores data in `~/.pilot/`:
-
-```
+```text
 ~/.pilot/
 ├── sessions/       # Persisted chat sessions
 ├── skills/         # User-installed skills
-└── api-keys.json   # API keys for gateway (hashed)
+└── api-keys.json   # Hashed API keys for gateway auth
 ```
 
-## Project Structure
+## Project Layout
 
-```
+```text
 pilot/
 ├── cmd/
-│   ├── pilot/           # CLI entry point
-│   └── pilot-gateway/   # Gateway entry point
+│   ├── pilot/
+│   └── pilot-gateway/
 ├── internal/
-│   ├── agent/           # Core agent with streaming loop
-│   ├── channel/
-│   │   └── telegram/    # Telegram bot adapter
-│   ├── cli/             # Interactive REPL
-│   ├── gateway/         # HTTP server and handlers
-│   │   └── apikey/      # API key management
-│   ├── session/         # Session management
-│   ├── skills/          # Skill parser and loader
-│   ├── browser/         # Headless browser for web fetch
-│   └── tools/           # Tool implementations
-├── docs/                # Documentation
-└── skills/              # Local skills directory
+│   ├── agent/
+│   ├── channel/telegram/
+│   ├── cli/
+│   ├── gateway/
+│   ├── session/
+│   ├── skills/
+│   ├── browser/
+│   └── tools/
+├── docs/
+└── skills/
 ```
 
 ## Development
 
 ```bash
-# Run tests
-make test
-
-# Run tests with coverage
-make test-cover
-
-# Build all binaries
+# Build
 make build
 
-# Run gateway with .env
+# Test
+make test
+make test-cover
+
+# Run
+make run
 make run-gateway
 
-# Show all targets
+# Discover more targets
 make help
 ```
 
 ## Documentation
 
-- [Gateway Setup](docs/gateway.md) - HTTP API setup and usage
-- [Telegram Setup](docs/telegram.md) - Telegram bot configuration
+- Gateway setup and API usage: `docs/gateway.md`
+- Telegram setup: `docs/telegram.md`
 
 ## License
 
-MIT
+MIT. See `LICENSE`.
