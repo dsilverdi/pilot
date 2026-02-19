@@ -14,16 +14,20 @@ import (
 	"github.com/dsilverdi/pilot/internal/session"
 )
 
+// Auto-compaction threshold (same as CLI)
+const autoCompactionThreshold = 150000
+
 // Bot represents a Telegram bot that interfaces with the agent
 type Bot struct {
 	api            *tgbotapi.BotAPI
 	agent          *agent.Agent
 	sessionManager *session.Manager
+	compactor      *session.Compactor
 	config         *Config
 }
 
 // NewBot creates a new Telegram bot
-func NewBot(cfg *Config, ag *agent.Agent, sm *session.Manager) (*Bot, error) {
+func NewBot(cfg *Config, ag *agent.Agent, sm *session.Manager, compactor *session.Compactor) (*Bot, error) {
 	if cfg.Token == "" {
 		return nil, fmt.Errorf("telegram bot token is required")
 	}
@@ -37,6 +41,7 @@ func NewBot(cfg *Config, ag *agent.Agent, sm *session.Manager) (*Bot, error) {
 		api:            api,
 		agent:          ag,
 		sessionManager: sm,
+		compactor:      compactor,
 		config:         cfg,
 	}, nil
 }
@@ -112,6 +117,9 @@ func (b *Bot) handleCommand(ctx context.Context, msg *tgbotapi.Message) {
 		}
 		b.sendPlainMessage(chatID, FormatSessionCleared())
 
+	case "compact":
+		b.handleCompactCommand(ctx, chatID, userID)
+
 	case "status":
 		// Count active sessions (rough estimate)
 		sessions, _ := b.sessionManager.List()
@@ -126,6 +134,37 @@ func (b *Bot) handleCommand(ctx context.Context, msg *tgbotapi.Message) {
 	default:
 		b.sendPlainMessage(chatID, "Hmm, I don't know that command. Try /help to see what I can do!")
 	}
+}
+
+// handleCompactCommand handles the /compact command
+func (b *Bot) handleCompactCommand(ctx context.Context, chatID int64, userID int64) {
+	sessionID := b.sessionID(userID)
+	sess, err := b.sessionManager.GetOrCreate(sessionID)
+	if err != nil {
+		b.sendPlainMessage(chatID, "No active conversation to compact.")
+		return
+	}
+
+	tokens := sess.EstimateTokens()
+	if tokens < 10000 {
+		b.sendPlainMessage(chatID, fmt.Sprintf("Conversation is small (~%dk tokens), no compaction needed.", tokens/1000))
+		return
+	}
+
+	b.sendPlainMessage(chatID, "🗜️ Compacting conversation...")
+
+	if err := b.compactor.Compact(ctx, sess); err != nil {
+		log.Printf("Manual compaction failed for session %s: %v", sessionID, err)
+		b.sendPlainMessage(chatID, FormatError(err))
+		return
+	}
+
+	if err := b.sessionManager.Save(sess); err != nil {
+		log.Printf("Failed to save compacted session: %v", err)
+	}
+
+	newTokens := sess.EstimateTokens()
+	b.sendPlainMessage(chatID, fmt.Sprintf("✓ Compacted! Reduced from ~%dk to ~%dk tokens.", tokens/1000, newTokens/1000))
 }
 
 // handleMessage processes regular text messages
@@ -201,11 +240,37 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 		log.Printf("Failed to save session: %v", err)
 	}
 
+	// Check if auto-compaction is needed
+	b.checkAutoCompaction(ctx, sess, sessionID)
+
 	// Format and send response with HTML (split if too long)
 	formattedResponse := FormatResponse(response)
 	parts := SplitLongMessageHTML(formattedResponse)
 	for _, part := range parts {
 		b.sendMessageHTML(chatID, part)
+	}
+}
+
+// checkAutoCompaction checks if session needs compaction and performs it
+func (b *Bot) checkAutoCompaction(ctx context.Context, sess *session.Session, sessionID string) {
+	if !sess.NeedsCompaction(autoCompactionThreshold) {
+		return
+	}
+
+	tokens := sess.EstimateTokens()
+	log.Printf("Session %s needs compaction (%d tokens > %d threshold)", sessionID, tokens, autoCompactionThreshold)
+
+	if err := b.compactor.Compact(ctx, sess); err != nil {
+		log.Printf("Auto-compaction failed for session %s: %v", sessionID, err)
+		return
+	}
+
+	newTokens := sess.EstimateTokens()
+	log.Printf("Session %s compacted successfully (%d -> %d tokens)", sessionID, tokens, newTokens)
+
+	// Save compacted session
+	if err := b.sessionManager.Save(sess); err != nil {
+		log.Printf("Failed to save compacted session %s: %v", sessionID, err)
 	}
 }
 

@@ -98,6 +98,7 @@ func FormatHelp() string {
 /start - Welcome message
 /help - Show this help
 /clear - Clear your conversation history
+/compact - Compress long conversations
 /status - Check bot status
 
 Just send any message and I'll do my best to help!`

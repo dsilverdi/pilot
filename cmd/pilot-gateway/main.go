@@ -197,7 +197,10 @@ func run() error {
 			return fmt.Errorf("failed to create telegram agent: %w", err)
 		}
 
-		tgBot, err = telegram.NewBot(tgConfig, tgAgent, sessionManager)
+		// Create compactor for Telegram bot (same threshold as CLI)
+		tgCompactor := session.NewCompactor(tgAgent, tgAgent.Model(), 100000)
+
+		tgBot, err = telegram.NewBot(tgConfig, tgAgent, sessionManager, tgCompactor)
 		if err != nil {
 			return fmt.Errorf("failed to create telegram bot: %w", err)
 		}
